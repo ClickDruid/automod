@@ -9,55 +9,40 @@ import type { CarModel, CarPart, CarStats, PartCategory } from '@/types'
 import carsData from '@/data/cars.json'
 import partsData from '@/data/parts.json'
 
-const cars = carsData as CarModel[]
+const cars  = carsData as CarModel[]
 const parts = partsData as CarPart[]
 
 const CarViewer = dynamic(() => import('@/components/CarViewer'), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full flex items-center justify-center">
-      <div className="text-zinc-600 text-sm animate-pulse tracking-widest">LOADING...</div>
+      <div className="text-zinc-600 text-sm animate-pulse tracking-widest">LOADING 3D...</div>
     </div>
   ),
 })
 
-const CATEGORIES: { id: PartCategory | 'all'; label: string; icon: string }[] = [
-  { id: 'all', label: 'All', icon: '⚡' },
-  { id: 'engine', label: 'Engine', icon: '⚙️' },
-  { id: 'intake', label: 'Intake', icon: '🌀' },
-  { id: 'exhaust', label: 'Exhaust', icon: '💨' },
-  { id: 'suspension', label: 'Suspension', icon: '🔧' },
-  { id: 'brakes', label: 'Brakes', icon: '🛑' },
-  { id: 'wheels', label: 'Wheels', icon: '🎡' },
-  { id: 'aero', label: 'Aero', icon: '🏁' },
-  { id: 'transmission', label: 'Trans', icon: '⚡' },
+const CATEGORIES: { id: PartCategory | 'all'; label: string }[] = [
+  { id: 'all',          label: 'ALL'          },
+  { id: 'engine',       label: 'ENGINE'       },
+  { id: 'intake',       label: 'INTAKE'       },
+  { id: 'exhaust',      label: 'EXHAUST'      },
+  { id: 'suspension',   label: 'SUSPENSION'   },
+  { id: 'brakes',       label: 'BRAKES'       },
+  { id: 'wheels',       label: 'WHEELS'       },
+  { id: 'aero',         label: 'AERO'         },
+  { id: 'transmission', label: 'TRANS'        },
 ]
 
-const TIER_LABELS: Record<number, string> = {
-  1: 'STREET',
-  2: 'SPORT',
-  3: 'TRACK',
-  4: 'RACE',
-  5: 'EXTREME',
-}
-
+const TIER_LABELS: Record<number, string> = { 1:'STREET', 2:'SPORT', 3:'TRACK', 4:'RACE', 5:'EXTREME' }
 const TIER_COLORS: Record<number, string> = {
-  1: '#6b7280',
-  2: '#3b82f6',
-  3: '#22c55e',
-  4: '#f97316',
-  5: '#ef4444',
+  1:'#6b7280', 2:'#3b82f6', 3:'#22c55e', 4:'#f97316', 5:'#ef4444',
 }
 
+// ─── Stat bar ─────────────────────────────────────────────────────────────────
 function StatBar({ label, statKey, value, delta }: {
-  label: string
-  statKey: keyof CarStats
-  value: number
-  delta: number
+  label: string; statKey: keyof CarStats; value: number; delta: number
 }) {
   const color = STAT_COLORS[statKey]
-  const hasDelta = delta !== 0
-
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
@@ -66,7 +51,7 @@ function StatBar({ label, statKey, value, delta }: {
         </span>
         <div className="flex items-center gap-1.5">
           <AnimatePresence mode="popLayout">
-            {hasDelta && (
+            {delta !== 0 && (
               <motion.span
                 key={delta}
                 initial={{ opacity: 0, y: -4 }}
@@ -95,12 +80,11 @@ function StatBar({ label, statKey, value, delta }: {
   )
 }
 
-function PartRow({ part, isSelected, onToggle }: {
-  part: CarPart
-  isSelected: boolean
-  onToggle: () => void
+// ─── Part card ────────────────────────────────────────────────────────────────
+function PartCard({ part, isSelected, onToggle }: {
+  part: CarPart; isSelected: boolean; onToggle: () => void
 }) {
-  const tier = (part as CarPart & { tier?: number }).tier ?? 1
+  const tier        = (part as CarPart & { tier?: number }).tier ?? 1
   const statEntries = Object.entries(part.stats) as [keyof CarStats, number][]
 
   return (
@@ -109,28 +93,21 @@ function PartRow({ part, isSelected, onToggle }: {
       whileTap={{ scale: 0.98 }}
       className={`w-full text-left p-3 rounded-xl border transition-all duration-150 ${
         isSelected
-          ? 'border-orange-500/60 bg-orange-500/8'
-          : 'border-zinc-800/60 bg-zinc-900/60 hover:border-zinc-700'
+          ? 'border-orange-500 bg-orange-500/8 shadow-[0_0_12px_rgba(249,115,22,0.15)]'
+          : 'border-zinc-800/60 bg-zinc-900/60 hover:border-zinc-600'
       }`}
     >
       <div className="flex items-start gap-3">
-        {/* Checkbox */}
-        <div className={`mt-0.5 w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+        {/* Radio-style indicator (single select) */}
+        <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
           isSelected ? 'border-orange-500 bg-orange-500' : 'border-zinc-600'
         }`}>
-          {isSelected && (
-            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          )}
+          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Brand + tier */}
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[9px] font-black tracking-widest uppercase text-zinc-500">
-              {part.brand}
-            </span>
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className="text-[9px] font-black tracking-widest uppercase text-zinc-500">{part.brand}</span>
             <span
               className="text-[9px] font-black tracking-widest px-1.5 py-px rounded"
               style={{ color: TIER_COLORS[tier], backgroundColor: `${TIER_COLORS[tier]}18` }}
@@ -138,22 +115,13 @@ function PartRow({ part, isSelected, onToggle }: {
               {TIER_LABELS[tier]}
             </span>
           </div>
-
-          {/* Name */}
-          <p className="text-xs font-semibold text-white leading-tight mb-1.5">
-            {part.name}
-          </p>
-
-          {/* Stat pills */}
+          <p className="text-xs font-semibold text-white leading-tight mb-1.5">{part.name}</p>
           <div className="flex flex-wrap gap-1">
             {statEntries.map(([key, val]) => (
               <span
                 key={key}
                 className="text-[9px] font-black px-1.5 py-px rounded"
-                style={{
-                  color: STAT_COLORS[key],
-                  backgroundColor: `${STAT_COLORS[key]}18`,
-                }}
+                style={{ color: STAT_COLORS[key], backgroundColor: `${STAT_COLORS[key]}18` }}
               >
                 {val > 0 ? '+' : ''}{val} {STAT_LABELS[key].toUpperCase()}
               </span>
@@ -161,70 +129,70 @@ function PartRow({ part, isSelected, onToggle }: {
           </div>
         </div>
 
-        {/* Price */}
-        <div className="text-right flex-shrink-0">
-          <span className="text-sm font-black text-white">
-            ${part.price >= 1000 ? `${(part.price / 1000).toFixed(1)}k` : part.price}
-          </span>
-        </div>
+        <span className="text-sm font-black text-white flex-shrink-0">
+          ${part.price >= 1000 ? `${(part.price / 1000).toFixed(1)}k` : part.price}
+        </span>
       </div>
     </motion.button>
   )
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ConfiguratorPage() {
-  const [selectedCar, setSelectedCar] = useState<CarModel>(cars[0])
-  const [selectedParts, setSelectedParts] = useState<CarPart[]>([])
-  const [activeCategory, setActiveCategory] = useState<PartCategory | 'all'>('all')
-  const [focusedCategory, setFocusedCategory] = useState<PartCategory | null>(null)
+  const [selectedCar,      setSelectedCar]      = useState<CarModel>(cars[0])
+  const [selectedPart,     setSelectedPart]      = useState<CarPart | null>(null)   // single selection
+  const [activeCategory,   setActiveCategory]    = useState<PartCategory | 'all'>('all')
+  const [focusedCategory,  setFocusedCategory]   = useState<PartCategory | null>(null)
 
+  // Stats reflect single selected part
   const currentStats = useMemo(
-    () => calculateStats(selectedCar.baseStats, selectedParts),
-    [selectedCar, selectedParts]
+    () => calculateStats(selectedCar.baseStats, selectedPart ? [selectedPart] : []),
+    [selectedCar, selectedPart]
   )
-
-  const statKeys = Object.keys(selectedCar.baseStats) as (keyof CarStats)[]
-
+  const statKeys   = Object.keys(selectedCar.baseStats) as (keyof CarStats)[]
   const totalBoost = useMemo(
-    () => statKeys.reduce((acc, k) => acc + (currentStats[k] - selectedCar.baseStats[k]), 0),
+    () => statKeys.reduce((acc, k) => acc + currentStats[k] - selectedCar.baseStats[k], 0),
     [currentStats, selectedCar, statKeys]
   )
 
-  const totalCost = selectedParts.reduce((acc, p) => acc + p.price, 0)
-
   const compatibleParts = parts.filter(p => p.compatible.includes(selectedCar.id))
-  const filteredParts = activeCategory === 'all'
+  const filteredParts   = activeCategory === 'all'
     ? compatibleParts
     : compatibleParts.filter(p => p.category === activeCategory)
 
-  const selectedIds = new Set(selectedParts.map(p => p.id))
-
-  const handleCarChange = (car: CarModel) => {
-    setSelectedCar(car)
-    setSelectedParts([])
-    setFocusedCategory(null)
-  }
-
-  const handleToggle = (part: CarPart) => {
-    const isRemoving = !!selectedParts.find(p => p.id === part.id)
-    setSelectedParts(prev =>
-      isRemoving ? prev.filter(p => p.id !== part.id) : [...prev, part]
-    )
-    if (isRemoving) {
-      // Zoom out when deselected
-      setFocusedCategory(null)
-    } else {
-      // Zoom to the part area when selected
-      setFocusedCategory(part.category)
-    }
-  }
-
-  const buildLabel = totalBoost === 0 ? null
+  const buildLabel =
+    totalBoost === 0 ? null
     : totalBoost < 10 ? 'STREET BUILD'
     : totalBoost < 25 ? 'SPORT BUILD'
     : totalBoost < 45 ? 'TRACK BUILD'
     : totalBoost < 70 ? 'RACE BUILD'
     : 'EXTREME BUILD'
+
+  // ── Toggle logic: single selection + smart camera ──
+  const handleToggle = (part: CarPart) => {
+    const isSamePart     = selectedPart?.id === part.id
+    const isSameCategory = selectedPart?.category === part.category
+
+    if (isSamePart) {
+      // Clicking same part → deselect, return to orbit
+      setSelectedPart(null)
+      setFocusedCategory(null)
+    } else {
+      // New part selected
+      setSelectedPart(part)
+      if (!isSameCategory) {
+        // Different category → zoom camera to new area
+        setFocusedCategory(part.category)
+      }
+      // Same category → camera stays, just the part model changes
+    }
+  }
+
+  const handleCarChange = (car: CarModel) => {
+    setSelectedCar(car)
+    setSelectedPart(null)
+    setFocusedCategory(null)
+  }
 
   return (
     <div className="h-screen bg-zinc-950 text-white flex flex-col overflow-hidden">
@@ -236,8 +204,6 @@ export default function ConfiguratorPage() {
           <span className="text-white font-black text-lg">MOD</span>
           <span className="text-[10px] text-zinc-600 border border-zinc-800 px-1.5 py-px rounded-full font-bold tracking-wider">DEMO</span>
         </div>
-
-        {/* Car tabs */}
         <div className="flex items-center gap-1.5">
           {cars.map(car => (
             <button
@@ -253,42 +219,32 @@ export default function ConfiguratorPage() {
             </button>
           ))}
         </div>
-
-        <a href="/" className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
-          ← Overview
-        </a>
+        <a href="/" className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">← Overview</a>
       </header>
 
-      {/* ── MAIN 3-COLUMN LAYOUT ── */}
+      {/* ── 3-COLUMN LAYOUT ── */}
       <div className="flex-1 flex overflow-hidden min-h-0">
 
-        {/* ── LEFT: STATS PANEL ── */}
+        {/* LEFT — Stats */}
         <div className="w-56 flex-shrink-0 border-r border-zinc-900 bg-zinc-950 flex flex-col p-4 gap-4 overflow-hidden">
-
-          {/* Car info */}
           <div>
-            <p className="text-[10px] font-black tracking-widest text-zinc-600 uppercase mb-0.5">
-              {selectedCar.brand}
-            </p>
-            <p className="text-base font-black text-white leading-tight">
-              {selectedCar.year} {selectedCar.name}
-            </p>
-            {buildLabel && (
-              <motion.div
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-1.5 inline-flex items-center gap-1 text-[9px] font-black tracking-widest px-2 py-0.5 rounded bg-orange-500/15 text-orange-400 border border-orange-500/20"
-              >
-                ▲ {buildLabel}
-              </motion.div>
-            )}
+            <p className="text-[10px] font-black tracking-widest text-zinc-600 uppercase mb-0.5">{selectedCar.brand}</p>
+            <p className="text-base font-black text-white leading-tight">{selectedCar.year} {selectedCar.name}</p>
+            <AnimatePresence>
+              {buildLabel && (
+                <motion.div
+                  key={buildLabel}
+                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                  className="mt-1.5 inline-flex items-center gap-1 text-[9px] font-black tracking-widest px-2 py-0.5 rounded bg-orange-500/15 text-orange-400 border border-orange-500/20"
+                >
+                  ▲ {buildLabel}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {/* Stat bars */}
           <div className="flex flex-col gap-2.5 flex-1">
-            <p className="text-[10px] font-black tracking-widest text-zinc-600 uppercase">
-              Performance
-            </p>
+            <p className="text-[10px] font-black tracking-widest text-zinc-600 uppercase">Performance</p>
             {statKeys.map(key => (
               <StatBar
                 key={key}
@@ -300,11 +256,8 @@ export default function ConfiguratorPage() {
             ))}
           </div>
 
-          {/* Total boost badge */}
           {totalBoost > 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-center"
             >
               <p className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase mb-1">Total Gain</p>
@@ -312,35 +265,32 @@ export default function ConfiguratorPage() {
             </motion.div>
           )}
 
-          {/* Selected count */}
-          <div className="text-center">
-            <p className="text-[10px] text-zinc-600 font-bold tracking-widest uppercase">
-              {selectedParts.length} parts · ${totalCost.toLocaleString()}
-            </p>
-          </div>
+          {selectedPart && (
+            <div className="text-center">
+              <p className="text-[10px] text-zinc-600 font-bold tracking-widest uppercase truncate">
+                {selectedPart.brand} · ${selectedPart.price.toLocaleString()}
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* ── CENTER: 3D CAR ── */}
+        {/* CENTER — 3D Car */}
         <div className="flex-1 min-w-0 relative bg-zinc-950 flex flex-col overflow-hidden">
-          {/* Garage floor glow */}
           <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-orange-500/5 to-transparent pointer-events-none" />
-          <div className="absolute inset-x-0 bottom-0 h-px bg-orange-500/10" />
 
           <div className="flex-1 min-h-0">
             <CarViewer
               carColor={selectedCar.color}
-              selectedParts={selectedParts}
+              selectedPart={selectedPart}
               focusedCategory={focusedCategory}
             />
           </div>
 
-          {/* Overview button — only shown when zoomed in */}
+          {/* Overview button */}
           <AnimatePresence>
             {focusedCategory && (
               <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
+                initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                 className="absolute top-3 left-1/2 -translate-x-1/2 z-10"
               >
                 <button
@@ -353,25 +303,22 @@ export default function ConfiguratorPage() {
             )}
           </AnimatePresence>
 
-          {/* Bottom hint */}
-          <div className="flex-shrink-0 h-8 flex items-center justify-center gap-4 border-t border-zinc-900/50">
+          <div className="flex-shrink-0 h-8 flex items-center justify-center border-t border-zinc-900/50">
             <p className="text-[10px] text-zinc-700 font-medium tracking-wider">
               {focusedCategory
-                ? 'DRAG TO INSPECT · AUTO-RETURNS IN 3S · CLICK OVERVIEW TO ORBIT'
-                : 'DRAG TO ROTATE · PINCH TO ZOOM · SELECT A PART TO FOCUS'}
+                ? 'DRAG TO INSPECT · RELEASES RETURN TO FOCUS · ← OVERVIEW TO ORBIT'
+                : 'SELECT A PART TO FOCUS · DRAG TO ROTATE FREELY'}
             </p>
           </div>
         </div>
 
-        {/* ── RIGHT: PARTS PANEL ── */}
+        {/* RIGHT — Parts */}
         <div className="w-80 flex-shrink-0 border-l border-zinc-900 bg-zinc-950 flex flex-col overflow-hidden">
 
           {/* Category tabs */}
           <div className="flex-shrink-0 border-b border-zinc-900 px-3 py-2">
             <div className="flex flex-wrap gap-1">
-              {CATEGORIES.filter(c =>
-                c.id === 'all' || compatibleParts.some(p => p.category === c.id)
-              ).map(cat => (
+              {CATEGORIES.filter(c => c.id === 'all' || compatibleParts.some(p => p.category === c.id)).map(cat => (
                 <button
                   key={cat.id}
                   onClick={() => setActiveCategory(cat.id)}
@@ -381,55 +328,56 @@ export default function ConfiguratorPage() {
                       : 'border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
                   }`}
                 >
-                  {cat.label.toUpperCase()}
+                  {cat.label}
                 </button>
               ))}
             </div>
           </div>
 
+          {/* Single-select note */}
+          <div className="flex-shrink-0 px-3 py-1.5 border-b border-zinc-900/50">
+            <p className="text-[9px] text-zinc-600 font-bold tracking-widest">
+              SELECT ONE PART · TAP AGAIN TO DESELECT
+            </p>
+          </div>
+
           {/* Parts list */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-hide">
             {filteredParts.length === 0 ? (
-              <div className="text-center py-8 text-zinc-700 text-xs font-bold tracking-wider">
-                NO PARTS AVAILABLE
-              </div>
+              <div className="text-center py-8 text-zinc-700 text-xs font-bold tracking-wider">NO PARTS</div>
             ) : (
               filteredParts.map(part => (
-                <PartRow
+                <PartCard
                   key={part.id}
                   part={part}
-                  isSelected={selectedIds.has(part.id)}
+                  isSelected={selectedPart?.id === part.id}
                   onToggle={() => handleToggle(part)}
                 />
               ))
             )}
           </div>
 
-          {/* Cart footer */}
-          <div className="flex-shrink-0 border-t border-zinc-900 p-3 space-y-2">
-            {selectedParts.length > 0 ? (
-              <>
+          {/* Footer */}
+          <div className="flex-shrink-0 border-t border-zinc-900 p-3">
+            {selectedPart ? (
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-500 font-bold tracking-wider">
-                    {selectedParts.length} PARTS SELECTED
-                  </span>
-                  <span className="text-base font-black text-white">
-                    ${totalCost.toLocaleString()}
-                  </span>
+                  <span className="text-xs text-zinc-400 font-bold tracking-wider truncate pr-2">{selectedPart.name}</span>
+                  <span className="text-base font-black text-white flex-shrink-0">${selectedPart.price.toLocaleString()}</span>
                 </div>
                 <button className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-black text-xs tracking-widest transition-colors">
                   REQUEST QUOTE →
                 </button>
                 <button
-                  onClick={() => { setSelectedParts([]); setFocusedCategory(null) }}
+                  onClick={() => { setSelectedPart(null); setFocusedCategory(null) }}
                   className="w-full py-1.5 rounded-xl border border-zinc-800 text-zinc-600 hover:text-zinc-400 font-bold text-[10px] tracking-widest transition-colors"
                 >
-                  CLEAR BUILD
+                  CLEAR SELECTION
                 </button>
-              </>
+              </div>
             ) : (
               <p className="text-center text-[10px] text-zinc-700 font-bold tracking-wider py-1">
-                SELECT PARTS TO START YOUR BUILD
+                SELECT A PART TO BEGIN
               </p>
             )}
           </div>

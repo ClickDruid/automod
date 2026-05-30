@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useRef, useEffect } from 'react'
+import { Suspense, useRef, useEffect, useMemo } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useGLTF, Environment, ContactShadows, CameraControls } from '@react-three/drei'
 import type { CarPart, PartCategory } from '@/types'
@@ -8,254 +8,447 @@ import * as THREE from 'three'
 
 useGLTF.preload('/models/ferrari.glb')
 
-// ─── Camera positions per part category ──────────────────────────────────────
-const CAMERA_PRESETS: Record<PartCategory | 'default', {
-  pos: [number, number, number]
-  target: [number, number, number]
-}> = {
-  engine:       { pos: [0, 1.8, 4.5],    target: [0, 0.6, 1.8]    },
-  intake:       { pos: [1.6, 1.6, 4.2],  target: [0.4, 0.5, 1.8]  },
-  exhaust:      { pos: [1.8, 0.5, -4.2], target: [0.3, -0.1, -2.4] },
-  suspension:   { pos: [3.4, 0.3, 1.5],  target: [1.1, -0.3, 1.0]  },
-  brakes:       { pos: [3.2, 0.6, 1.8],  target: [1.1, -0.1, 1.2]  },
-  wheels:       { pos: [3.6, 0.7, 0.2],  target: [1.2, -0.1, 0]    },
-  aero:         { pos: [2.6, 2.0, -3.5], target: [0, 0.8, -1.8]    },
-  transmission: { pos: [2.8, 0.4, 0.4],  target: [0, -0.4, 0]      },
-  default:      { pos: [3.5, 1.6, 5.5],  target: [0, 0.3, 0]       },
+// ─── Camera presets ───────────────────────────────────────────────────────────
+const CAM: Record<PartCategory | 'default', { pos: [number,number,number]; target: [number,number,number] }> = {
+  engine:       { pos: [0.5, 1.5, 4.2],   target: [0, 0.55, 1.8]   },
+  intake:       { pos: [1.4, 1.4, 4.0],   target: [0.3, 0.5, 1.8]  },
+  exhaust:      { pos: [1.6, 0.4, -4.0],  target: [0.2, -0.1, -2.3] },
+  suspension:   { pos: [3.2, 0.2, 1.4],   target: [1.0, -0.2, 1.0]  },
+  brakes:       { pos: [3.0, 0.5, 1.8],   target: [1.0, -0.1, 1.2]  },
+  wheels:       { pos: [3.4, 0.6, 0],     target: [1.1, -0.15, 0]   },
+  aero:         { pos: [2.4, 1.8, -3.4],  target: [0, 0.7, -1.9]    },
+  transmission: { pos: [2.6, 0.3, 0.5],   target: [0, -0.4, 0]      },
+  default:      { pos: [3.5, 1.6, 5.5],   target: [0, 0.3, 0]       },
 }
 
-// ─── Part-to-visual-change mapping ───────────────────────────────────────────
-function useCarMods(selectedParts: CarPart[]) {
-  const hasExhaust   = selectedParts.some(p => p.category === 'exhaust')
-  const hasWing      = selectedParts.some(p => p.id.includes('wing') || p.id.includes('body-kit'))
-  const hasLip       = selectedParts.some(p => p.id.includes('lip')  || p.id.includes('body-kit'))
-  const hasSkirts    = selectedParts.some(p => p.id.includes('skirt') || p.id.includes('body-kit'))
-  const hasBrakes    = selectedParts.some(p => p.category === 'brakes')
-  const hasWheels    = selectedParts.some(p => p.category === 'wheels')
-  const hasEngine    = selectedParts.some(p => p.category === 'engine')
-  const tierOfWheels = selectedParts.find(p => p.category === 'wheels') as (CarPart & { tier?: number }) | undefined
-  const wheelTier    = tierOfWheels?.tier ?? 0
+// ─── Shared materials ─────────────────────────────────────────────────────────
+const mkCarbon = () => new THREE.MeshStandardMaterial({
+  color: '#141414', metalness: 0.25, roughness: 0.45, side: THREE.DoubleSide,
+})
+const mkChrome = () => new THREE.MeshStandardMaterial({
+  color: '#d0d0d0', metalness: 0.96, roughness: 0.04,
+})
+const mkGloss = (col = '#0e0e0e') => new THREE.MeshStandardMaterial({
+  color: col, metalness: 0.15, roughness: 0.25,
+})
 
-  // Brake caliper colour based on tier
-  const brakeTier  = (selectedParts.find(p => p.category === 'brakes') as (CarPart & { tier?: number }) | undefined)?.tier ?? 0
-  const calColor   = brakeTier >= 4 ? '#ef4444' : brakeTier >= 2 ? '#f97316' : '#ffcc00'
+// ─── FRONT LIP ────────────────────────────────────────────────────────────────
+// Real lip: thin angled blade + side canards + central splitter
+function FrontLip() {
+  const mat = useMemo(mkCarbon, [])
 
-  return { hasExhaust, hasWing, hasLip, hasSkirts, hasBrakes, hasWheels,
-           hasEngine, wheelTier, calColor, brakeTier }
+  const bladeGeo = useMemo(() => {
+    // Lip blade cross-section (YZ plane): thin wedge that tapers forward & down
+    const shape = new THREE.Shape()
+    shape.moveTo(0, 0)                          // rear attach
+    shape.lineTo(0.005, 0)
+    shape.bezierCurveTo(0.01, -0.018, 0.06, -0.04, 0.11, -0.052) // underside curve
+    shape.lineTo(0.11, -0.042)
+    shape.bezierCurveTo(0.06, -0.028, 0.01, -0.008, 0, 0)        // top surface
+    shape.closePath()
+    return new THREE.ExtrudeGeometry(shape, { depth: 1.58, bevelEnabled: false })
+  }, [])
+
+  // Side canard (small fin)
+  const canardGeo = useMemo(() => {
+    const shape = new THREE.Shape()
+    shape.moveTo(0, 0); shape.lineTo(0.18, -0.02); shape.lineTo(0.18, -0.04)
+    shape.lineTo(0, -0.01); shape.closePath()
+    return new THREE.ExtrudeGeometry(shape, { depth: 0.008, bevelEnabled: false })
+  }, [])
+
+  return (
+    <group position={[0, -0.285, 2.21]}>
+      {/* Main blade – spans full width, rotated to align chord along Z */}
+      <mesh
+        geometry={bladeGeo}
+        material={mat}
+        position={[-0.79, 0, 0]}
+        rotation={[0, Math.PI / 2, 0]}
+        castShadow
+      />
+      {/* Left canard */}
+      <mesh geometry={canardGeo} material={mat} position={[-0.88, -0.01, 0.01]} rotation={[0, 0.3, 0]} castShadow />
+      {/* Right canard */}
+      <mesh geometry={canardGeo} material={mat} position={[0.88, -0.01, 0.01]} rotation={[0, -0.3, Math.PI]} castShadow />
+      {/* Central splitter plate */}
+      <mesh castShadow>
+        <boxGeometry args={[0.42, 0.008, 0.13]} />
+        <primitive object={mat} attach="material" />
+      </mesh>
+    </group>
+  )
 }
 
-// ─── Ferrari model + overlays ─────────────────────────────────────────────────
-function FerrariModel({ color, selectedParts }: { color: string; selectedParts: CarPart[] }) {
+// ─── SIDE SKIRTS ──────────────────────────────────────────────────────────────
+// Real skirt: ExtrudeGeometry with shaped cross-section (not a box)
+function SideSkirts() {
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#0f0f0f', metalness: 0.2, roughness: 0.42,
+  }), [])
+
+  // Right skirt cross-section (X = outward, Y = up, extruded along Z)
+  const rightGeo = useMemo(() => {
+    const s = new THREE.Shape()
+    s.moveTo(0, 0)                                              // top-inner (attach line)
+    s.lineTo(0.014, 0.008)                                      // top outer bead
+    s.lineTo(0.06, -0.018)                                      // upper angled face
+    s.lineTo(0.075, -0.072)                                     // outer face mid
+    s.bezierCurveTo(0.082, -0.105, 0.072, -0.128, 0.052, -0.133) // bottom curve
+    s.lineTo(0.024, -0.136)                                     // bottom underside
+    s.lineTo(0, -0.132)                                         // inner bottom
+    s.closePath()
+    return new THREE.ExtrudeGeometry(s, { depth: 3.04, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2 })
+  }, [])
+
+  // Left skirt: mirror shape
+  const leftGeo = useMemo(() => {
+    const s = new THREE.Shape()
+    s.moveTo(0, 0)
+    s.lineTo(-0.014, 0.008)
+    s.lineTo(-0.06, -0.018)
+    s.lineTo(-0.075, -0.072)
+    s.bezierCurveTo(-0.082, -0.105, -0.072, -0.128, -0.052, -0.133)
+    s.lineTo(-0.024, -0.136)
+    s.lineTo(0, -0.132)
+    s.closePath()
+    return new THREE.ExtrudeGeometry(s, { depth: 3.04, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2 })
+  }, [])
+
+  return (
+    <>
+      <mesh geometry={rightGeo} material={mat} position={[0.878, -0.06, -1.52]} castShadow />
+      <mesh geometry={leftGeo}  material={mat} position={[-0.878, -0.06, -1.52]} castShadow />
+    </>
+  )
+}
+
+// ─── REAR WING ────────────────────────────────────────────────────────────────
+// Real wing: airfoil-section blade + proper endplates + angled mounting pylons
+function RearWing() {
+  const carbonMat = useMemo(mkCarbon, [])
+
+  // Airfoil blade (NACA-style simplified profile)
+  const bladeGeo = useMemo(() => {
+    const shape = new THREE.Shape()
+    // Upper surface
+    shape.moveTo(0, 0)
+    shape.bezierCurveTo(0.018, 0.028, 0.08, 0.040, 0.18, 0.030)
+    shape.bezierCurveTo(0.24, 0.022, 0.30, 0.008, 0.33, 0)
+    // Lower surface
+    shape.bezierCurveTo(0.30, -0.006, 0.24, -0.012, 0.18, -0.013)
+    shape.bezierCurveTo(0.08, -0.014, 0.018, -0.010, 0, 0)
+    // Wing span (extruded along Z = 1.48 wide)
+    return new THREE.ExtrudeGeometry(shape, { depth: 1.48, bevelEnabled: false })
+  }, [])
+
+  // Endplate: shaped plate at wing tip
+  const endplateGeo = useMemo(() => {
+    const shape = new THREE.Shape()
+    shape.moveTo(-0.06, 0.08)
+    shape.bezierCurveTo(-0.04, 0.10, 0.04, 0.10, 0.06, 0.08)
+    shape.lineTo(0.38, -0.06)
+    shape.bezierCurveTo(0.40, -0.09, 0.38, -0.13, 0.34, -0.14)
+    shape.lineTo(-0.02, -0.14)
+    shape.bezierCurveTo(-0.06, -0.13, -0.08, -0.09, -0.06, -0.06)
+    shape.closePath()
+    return new THREE.ExtrudeGeometry(shape, { depth: 0.012, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004 })
+  }, [])
+
+  return (
+    // Group centered at rear of car
+    <group position={[0, 0.66, -1.98]}>
+      {/* Blade: spans from x=-0.74 to x=0.74 → rotate so extrusion is along X */}
+      <mesh
+        geometry={bladeGeo}
+        material={carbonMat}
+        position={[0.74, 0, -0.06]}
+        rotation={[0.06, -Math.PI / 2, 0]}
+        castShadow
+      />
+
+      {/* Left endplate */}
+      <mesh geometry={endplateGeo} material={carbonMat} position={[-0.74, -0.06, -0.06]} rotation={[0, Math.PI / 2, 0]} castShadow />
+      {/* Right endplate */}
+      <mesh geometry={endplateGeo} material={carbonMat} position={[0.74, -0.06, -0.06]} rotation={[0, -Math.PI / 2, 0]} castShadow />
+
+      {/* Left mounting pylon */}
+      <mesh position={[-0.26, -0.22, -0.04]} rotation={[0.08, 0, 0]} castShadow>
+        <boxGeometry args={[0.038, 0.42, 0.052]} />
+        <primitive object={carbonMat} attach="material" />
+      </mesh>
+      {/* Right mounting pylon */}
+      <mesh position={[0.26, -0.22, -0.04]} rotation={[0.08, 0, 0]} castShadow>
+        <boxGeometry args={[0.038, 0.42, 0.052]} />
+        <primitive object={carbonMat} attach="material" />
+      </mesh>
+    </group>
+  )
+}
+
+// ─── EXHAUST TIPS ─────────────────────────────────────────────────────────────
+// Real dual oval exhaust with chrome surround + dark inner bore
+function ExhaustTips() {
+  const chromeMat = useMemo(mkChrome, [])
+  const boreMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#040404', roughness: 0.9 }), [])
+
+  return (
+    <group position={[0, -0.27, -2.32]}>
+      {([-0.30, 0.30] as number[]).map((x, i) => (
+        <group key={i} position={[x, 0, 0]}>
+          {/* Outer chrome tip */}
+          <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+            <cylinderGeometry args={[0.068, 0.076, 0.18, 24]} />
+            <primitive object={chromeMat} attach="material" />
+          </mesh>
+          {/* Inner bore (dark) */}
+          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.04]}>
+            <cylinderGeometry args={[0.052, 0.052, 0.14, 24]} />
+            <primitive object={boreMat} attach="material" />
+          </mesh>
+          {/* Tip flange ring */}
+          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.04]}>
+            <torusGeometry args={[0.066, 0.008, 12, 24]} />
+            <primitive object={chromeMat} attach="material" />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
+// ─── BRAKE CALIPERS ───────────────────────────────────────────────────────────
+// Realistic caliper body visible through wheel spokes
+function BrakeCalipers({ color }: { color: string }) {
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({
+    color, metalness: 0.6, roughness: 0.35,
+  }), [color])
+
+  return (
+    <group>
+      {([[-1.02, 1.3], [1.02, 1.3], [-1.02, -1.3], [1.02, -1.3]] as [number,number][]).map(([x, z], i) => (
+        <group key={i} position={[x > 0 ? x - 0.08 : x + 0.08, -0.14, z]}>
+          {/* Main caliper body */}
+          <mesh castShadow>
+            <boxGeometry args={[0.055, 0.20, 0.25]} />
+            <primitive object={mat} attach="material" />
+          </mesh>
+          {/* Piston bridge */}
+          <mesh position={[0, 0.08, 0]} castShadow>
+            <boxGeometry args={[0.055, 0.04, 0.25]} />
+            <primitive object={mat} attach="material" />
+          </mesh>
+          {/* Bleed nipple */}
+          <mesh position={[0, 0.09, 0.08]} castShadow>
+            <cylinderGeometry args={[0.008, 0.008, 0.02, 8]} />
+            <meshStandardMaterial color="#888888" metalness={0.9} roughness={0.1} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
+// ─── AFTERMARKET WHEELS ───────────────────────────────────────────────────────
+// Proper rim with barrel, face, spokes and hub — overlaid on Ferrari's existing tyre
+function AftermarketWheels({ tier }: { tier: number }) {
+  const rimCol  = tier >= 5 ? '#f2f2f2' : tier >= 4 ? '#e0e0e0' : tier >= 3 ? '#cccccc' : '#bbbbbb'
+  const rimMat  = useMemo(() => new THREE.MeshStandardMaterial({ color: rimCol, metalness: 0.92, roughness: 0.06 }), [rimCol])
+  const darkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#111111', metalness: 0.3, roughness: 0.5 }), [])
+  const spokeCount = tier >= 4 ? 10 : tier >= 3 ? 7 : 5
+
+  // Rim barrel profile (lathe around Y, then rotated 90° to face outward)
+  const rimBarrelGeo = useMemo(() => {
+    const pts = [
+      new THREE.Vector2(0.28, 0),
+      new THREE.Vector2(0.29, 0.012),
+      new THREE.Vector2(0.29, 0.032),
+      new THREE.Vector2(0.26, 0.040),
+      new THREE.Vector2(0.20, 0.048),
+      new THREE.Vector2(0.09, 0.052),
+      new THREE.Vector2(0.05, 0.050),
+      new THREE.Vector2(0.05, 0.022),
+      new THREE.Vector2(0.0,  0.018),
+    ]
+    return new THREE.LatheGeometry(pts, 32)
+  }, [])
+
+  const positions: [number,number,number][] = [
+    [-1.02, -0.14, 1.30], [1.02, -0.14, 1.30],
+    [-1.02, -0.14, -1.30], [1.02, -0.14, -1.30],
+  ]
+
+  return (
+    <group>
+      {positions.map(([x, y, z], wi) => {
+        const facingLeft = x < 0
+        return (
+          <group key={wi} position={[x, y, z]}>
+            {/* Lathe rim barrel */}
+            <mesh
+              geometry={rimBarrelGeo}
+              material={rimMat}
+              rotation={[0, 0, Math.PI / 2]}
+              scale={[1, facingLeft ? 1 : -1, 1]}
+              castShadow
+            />
+            {/* Face disc */}
+            <mesh rotation={[0, 0, Math.PI / 2]} position={[facingLeft ? -0.052 : 0.052, 0, 0]} castShadow>
+              <cylinderGeometry args={[0.25, 0.25, 0.012, 32]} />
+              <primitive object={darkMat} attach="material" />
+            </mesh>
+            {/* Spokes */}
+            {Array.from({ length: spokeCount }).map((_, s) => {
+              const angle = (s / spokeCount) * Math.PI * 2
+              const sx = Math.sin(angle) * 0.14
+              const sz = Math.cos(angle) * 0.14
+              return (
+                <mesh
+                  key={s}
+                  rotation={[0, 0, Math.PI / 2]}
+                  position={[facingLeft ? -0.048 : 0.048, sx, sz]}
+                  castShadow
+                >
+                  <boxGeometry args={[0.010, 0.040, 0.21]} />
+                  <primitive object={rimMat} attach="material" />
+                </mesh>
+              )
+            })}
+            {/* Centre cap */}
+            <mesh rotation={[0, 0, Math.PI / 2]} position={[facingLeft ? -0.054 : 0.054, 0, 0]}>
+              <cylinderGeometry args={[0.048, 0.048, 0.016, 20]} />
+              <primitive object={rimMat} attach="material" />
+            </mesh>
+          </group>
+        )
+      })}
+    </group>
+  )
+}
+
+// ─── ENGINE GLOW (visual cue for engine/intake parts) ────────────────────────
+function EngineGlow() {
+  return (
+    <mesh position={[0, 0.50, 1.38]} rotation={[0.18, 0, 0]}>
+      <boxGeometry args={[1.28, 0.008, 0.85]} />
+      <meshStandardMaterial
+        color="#ff5500"
+        emissive="#ff3300"
+        emissiveIntensity={0.8}
+        transparent
+        opacity={0.35}
+      />
+    </mesh>
+  )
+}
+
+// ─── Ferrari model + conditional overlays ────────────────────────────────────
+function FerrariModel({ color, selectedPart }: { color: string; selectedPart: CarPart | null }) {
   const { scene } = useGLTF('/models/ferrari.glb')
-  const bodyColor = new THREE.Color(color)
+  const bodyColor = useMemo(() => new THREE.Color(color), [color])
 
-  const mods = useCarMods(selectedParts)
+  const cat    = selectedPart?.category ?? null
+  const partId = selectedPart?.id ?? ''
+  const tier   = (selectedPart as (CarPart & { tier?: number }) | null)?.tier ?? 1
 
-  // Tint body panels
+  const showLip    = cat === 'aero' && (partId.includes('lip')   || partId.includes('body-kit'))
+  const showSkirts = cat === 'aero' && (partId.includes('skirt') || partId.includes('body-kit'))
+  const showWing   = cat === 'aero' && (partId.includes('wing')  || partId.includes('body-kit'))
+  const showExh    = cat === 'exhaust'
+  const showBrakes = cat === 'brakes'
+  const showWheels = cat === 'wheels'
+  const showEngine = cat === 'engine' || cat === 'intake'
+
+  const brakeColor = tier >= 4 ? '#ef4444' : tier >= 2 ? '#f97316' : '#f0c040'
+
+  // Recolour body panels
   useEffect(() => {
     scene.traverse(child => {
       if (!(child instanceof THREE.Mesh)) return
       const mats = Array.isArray(child.material) ? child.material : [child.material]
       mats.forEach(m => {
-        if (m instanceof THREE.MeshStandardMaterial && m.color.r + m.color.g + m.color.b > 0.6) {
-          m.color.set(bodyColor)
-          m.metalness = 0.9
-          m.roughness = 0.15
-          m.needsUpdate = true
+        if (m instanceof THREE.MeshStandardMaterial) {
+          const { r, g, b } = m.color
+          if (r + g + b > 0.6) {
+            m.color.set(bodyColor)
+            m.metalness = 0.9
+            m.roughness = 0.15
+            m.needsUpdate = true
+          }
         }
       })
     })
   }, [color, scene])
 
-  // Shared materials
-  const carbonMat  = new THREE.MeshStandardMaterial({ color: '#111111', metalness: 0.3, roughness: 0.5 })
-  const chromeMat  = new THREE.MeshStandardMaterial({ color: '#aaaaaa', metalness: 0.95, roughness: 0.05 })
-  const glowMat    = new THREE.MeshStandardMaterial({ color: '#ff6600', emissive: '#ff3300', emissiveIntensity: 0.6, transparent: true, opacity: 0.4 })
-
   return (
     <group>
-      {/* ── Base model ── */}
       <primitive object={scene} scale={1} position={[0, -0.44, 0]} />
-
-      {/* ── FRONT LIP ── */}
-      {mods.hasLip && (
-        <mesh position={[0, -0.28, 2.26]} castShadow>
-          <boxGeometry args={[1.62, 0.09, 0.12]} />
-          <primitive object={carbonMat} attach="material" />
-        </mesh>
-      )}
-
-      {/* ── SIDE SKIRTS ── */}
-      {mods.hasSkirts && (<>
-        <mesh position={[-0.9, -0.19, 0.1]} castShadow>
-          <boxGeometry args={[0.08, 0.14, 3.0]} />
-          <primitive object={carbonMat} attach="material" />
-        </mesh>
-        <mesh position={[0.9, -0.19, 0.1]} castShadow>
-          <boxGeometry args={[0.08, 0.14, 3.0]} />
-          <primitive object={carbonMat} attach="material" />
-        </mesh>
-      </>)}
-
-      {/* ── REAR WING ── */}
-      {mods.hasWing && (
-        <group position={[0, 0.72, -2.0]}>
-          {/* Main blade */}
-          <mesh>
-            <boxGeometry args={[1.48, 0.06, 0.34]} />
-            <primitive object={carbonMat} attach="material" />
-          </mesh>
-          {/* End plates */}
-          {([-0.68, 0.68] as number[]).map((x, i) => (
-            <mesh key={i} position={[x, -0.13, 0]}>
-              <boxGeometry args={[0.07, 0.26, 0.38]} />
-              <primitive object={carbonMat} attach="material" />
-            </mesh>
-          ))}
-          {/* Supports */}
-          {([-0.3, 0.3] as number[]).map((x, i) => (
-            <mesh key={i} position={[x, -0.22, 0.06]}>
-              <boxGeometry args={[0.05, 0.3, 0.06]} />
-              <primitive object={carbonMat} attach="material" />
-            </mesh>
-          ))}
-        </group>
-      )}
-
-      {/* ── DUAL EXHAUST TIPS ── */}
-      {mods.hasExhaust && (
-        <group position={[0, -0.28, -2.3]}>
-          {([-0.28, 0.28] as number[]).map((x, i) => (
-            <group key={i} position={[x, 0, 0]}>
-              <mesh rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry args={[0.072, 0.09, 0.16, 20]} />
-                <primitive object={chromeMat} attach="material" />
-              </mesh>
-              {/* Inner dark */}
-              <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.01]}>
-                <cylinderGeometry args={[0.055, 0.055, 0.1, 20]} />
-                <meshStandardMaterial color="#050505" roughness={0.8} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-      )}
-
-      {/* ── BRAKE CALIPERS (visible through wheel gaps) ── */}
-      {mods.hasBrakes && (
-        <group>
-          {([[-1.0, 1.3], [1.0, 1.3], [-1.0, -1.3], [1.0, -1.3]] as [number,number][]).map(([x, z], i) => (
-            <mesh key={i} position={[x, -0.14, z]}>
-              <boxGeometry args={[0.06, 0.18, 0.22]} />
-              <meshStandardMaterial color={mods.calColor} metalness={0.7} roughness={0.3} />
-            </mesh>
-          ))}
-        </group>
-      )}
-
-      {/* ── WHEEL OVERLAYS (aftermarket rims) ── */}
-      {mods.hasWheels && (
-        <group>
-          {([[-1.02, 1.3], [1.02, 1.3], [-1.02, -1.3], [1.02, -1.3]] as [number,number][]).map(([x, z], i) => {
-            const rimCol = mods.wheelTier >= 4 ? '#e8e8e8' : mods.wheelTier >= 3 ? '#c8c8c8' : '#b0b0b0'
-            return (
-              <group key={i} position={[x, -0.14, z]}>
-                {/* Rim face disc */}
-                <mesh rotation={[0, 0, Math.PI / 2]}>
-                  <cylinderGeometry args={[0.26, 0.26, 0.04, 32]} />
-                  <meshStandardMaterial color={rimCol} metalness={0.95} roughness={0.05} />
-                </mesh>
-                {/* Spokes */}
-                {Array.from({ length: mods.wheelTier >= 3 ? 10 : 5 }).map((_, s) => (
-                  <mesh
-                    key={s}
-                    rotation={[0, 0, Math.PI / 2]}
-                    position={[
-                      x > 0 ? 0.015 : -0.015,
-                      Math.sin((s / (mods.wheelTier >= 3 ? 10 : 5)) * Math.PI * 2) * 0.15,
-                      Math.cos((s / (mods.wheelTier >= 3 ? 10 : 5)) * Math.PI * 2) * 0.15,
-                    ]}
-                  >
-                    <boxGeometry args={[0.01, 0.04, 0.2]} />
-                    <meshStandardMaterial color={rimCol} metalness={0.9} roughness={0.1} />
-                  </mesh>
-                ))}
-              </group>
-            )
-          })}
-        </group>
-      )}
-
-      {/* ── ENGINE / INTAKE — carbon hood highlight ── */}
-      {mods.hasEngine && (
-        <mesh position={[0, 0.52, 1.4]} rotation={[0.18, 0, 0]}>
-          <boxGeometry args={[1.4, 0.01, 0.9]} />
-          <primitive object={glowMat} attach="material" />
-        </mesh>
-      )}
+      {showLip    && <FrontLip />}
+      {showSkirts && <SideSkirts />}
+      {showWing   && <RearWing />}
+      {showExh    && <ExhaustTips />}
+      {showBrakes && <BrakeCalipers color={brakeColor} />}
+      {showWheels && <AftermarketWheels tier={tier} />}
+      {showEngine && <EngineGlow />}
     </group>
   )
 }
 
 // ─── Camera brain ─────────────────────────────────────────────────────────────
-function SceneController({
-  focusedCategory,
-}: {
-  focusedCategory: PartCategory | null
-}) {
-  const controlsRef = useRef<CameraControls>(null)
-  const isAutoRotating = useRef(true)
-  const returnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const focusedRef = useRef(focusedCategory)
+function SceneController({ focusedCategory }: { focusedCategory: PartCategory | null }) {
+  const controlsRef   = useRef<CameraControls>(null)
+  const isOrbiting    = useRef(true)
+  const returnTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const focusedRef    = useRef(focusedCategory)
 
-  // Keep ref in sync with prop
-  useEffect(() => {
-    focusedRef.current = focusedCategory
-  }, [focusedCategory])
+  useEffect(() => { focusedRef.current = focusedCategory }, [focusedCategory])
 
-  // Auto-rotate via azimuth
+  // Orbit via azimuth rotation
   useFrame((_, delta) => {
-    if (!isAutoRotating.current || !controlsRef.current) return
-    controlsRef.current.azimuthAngle += delta * 0.38
+    if (!isOrbiting.current || !controlsRef.current) return
+    controlsRef.current.rotate(delta * 0.38, 0, false)
   })
 
   // React to focused category
   useEffect(() => {
-    if (!controlsRef.current) return
+    const ctrl = controlsRef.current
+    if (!ctrl) return
 
     if (focusedCategory === null) {
-      isAutoRotating.current = true
+      // Return to default orbit position, then resume orbit
+      isOrbiting.current = false
+      const { pos, target } = CAM.default
+      ctrl.setLookAt(pos[0], pos[1], pos[2], target[0], target[1], target[2], true)
+        .then(() => { isOrbiting.current = true })
       return
     }
 
-    isAutoRotating.current = false
-    const { pos, target } = CAMERA_PRESETS[focusedCategory] ?? CAMERA_PRESETS.default
-    controlsRef.current.setLookAt(
-      pos[0], pos[1], pos[2],
-      target[0], target[1], target[2],
-      true
-    )
+    isOrbiting.current = false
+    const { pos, target } = CAM[focusedCategory] ?? CAM.default
+    ctrl.setLookAt(pos[0], pos[1], pos[2], target[0], target[1], target[2], true)
   }, [focusedCategory])
 
-  // User drag → pause → return to focus
+  // User drag → stop orbit → 3s after release, return to focus / orbit
   useEffect(() => {
     const ctrl = controlsRef.current
     if (!ctrl) return
 
     const onStart = () => {
-      isAutoRotating.current = false
-      if (returnTimerRef.current) clearTimeout(returnTimerRef.current)
+      isOrbiting.current = false
+      if (returnTimer.current) clearTimeout(returnTimer.current)
     }
 
     const onEnd = () => {
-      if (returnTimerRef.current) clearTimeout(returnTimerRef.current)
-      returnTimerRef.current = setTimeout(() => {
+      if (returnTimer.current) clearTimeout(returnTimer.current)
+      returnTimer.current = setTimeout(() => {
         const cat = focusedRef.current
+        if (!ctrl) return
         if (cat) {
-          const { pos, target } = CAMERA_PRESETS[cat] ?? CAMERA_PRESETS.default
+          const { pos, target } = CAM[cat] ?? CAM.default
           ctrl.setLookAt(pos[0], pos[1], pos[2], target[0], target[1], target[2], true)
         } else {
-          isAutoRotating.current = true
+          // Resume orbiting from current position
+          isOrbiting.current = true
         }
       }, 3000)
     }
@@ -265,7 +458,7 @@ function SceneController({
     return () => {
       ctrl.removeEventListener('controlstart', onStart)
       ctrl.removeEventListener('controlend', onEnd)
-      if (returnTimerRef.current) clearTimeout(returnTimerRef.current)
+      if (returnTimer.current) clearTimeout(returnTimer.current)
     }
   }, [])
 
@@ -273,50 +466,32 @@ function SceneController({
     <CameraControls
       ref={controlsRef}
       makeDefault
-      minDistance={1.5}
+      minDistance={1.8}
       maxDistance={10}
-      polarAngle={Math.PI / 3}
     />
   )
 }
 
-// ─── Loader overlay ───────────────────────────────────────────────────────────
-function Loader() {
-  return (
-    <mesh>
-      <boxGeometry args={[0, 0, 0]} />
-      <meshBasicMaterial />
-    </mesh>
-  )
-}
-
-// ─── Public props ─────────────────────────────────────────────────────────────
+// ─── Public component ─────────────────────────────────────────────────────────
 interface CarViewerProps {
   carColor: string
-  selectedParts: CarPart[]
+  selectedPart: CarPart | null
   focusedCategory: PartCategory | null
 }
 
-export default function CarViewer({ carColor, selectedParts, focusedCategory }: CarViewerProps) {
+export default function CarViewer({ carColor, selectedPart, focusedCategory }: CarViewerProps) {
   return (
     <div className="w-full h-full">
-      <Canvas
-        camera={{ position: [3.5, 1.6, 5.5], fov: 42 }}
-        shadows
-        gl={{ antialias: true, alpha: true }}
-        style={{ background: 'transparent' }}
-      >
+      <Canvas camera={{ position: [3.5, 1.6, 5.5], fov: 42 }} shadows gl={{ antialias: true, alpha: true }} style={{ background: 'transparent' }}>
         <ambientLight intensity={0.55} />
         <directionalLight position={[6, 8, 4]} intensity={1.6} castShadow shadow-mapSize={[2048, 2048]} />
         <directionalLight position={[-5, 4, -4]} intensity={0.5} color="#6688ff" />
         <pointLight position={[0, 6, 0]} intensity={0.4} />
-
-        <Suspense fallback={<Loader />}>
-          <FerrariModel color={carColor} selectedParts={selectedParts} />
+        <Suspense fallback={null}>
+          <FerrariModel color={carColor} selectedPart={selectedPart} />
           <ContactShadows position={[0, -0.46, 0]} opacity={0.75} scale={12} blur={3} far={4} />
           <Environment preset="city" />
         </Suspense>
-
         <SceneController focusedCategory={focusedCategory} />
       </Canvas>
     </div>
