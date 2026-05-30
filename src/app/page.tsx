@@ -53,9 +53,12 @@ export default function LandingPage() {
           <Link href="/configurator" className="text-sm text-zinc-400 hover:text-white transition-colors">
             Live Demo
           </Link>
-          <a href="#features" className="text-sm text-zinc-400 hover:text-white transition-colors">
-            Features
-          </a>
+          <Link href="/my-car" className="text-sm text-zinc-400 hover:text-white transition-colors">
+            My Car
+          </Link>
+          <Link href="/how-it-works" className="text-sm text-zinc-400 hover:text-white transition-colors">
+            Integration
+          </Link>
           <a
             href="mailto:hello@automod.io"
             className="text-sm bg-orange-500 hover:bg-orange-400 text-white px-4 py-2 rounded-lg font-medium transition-colors"
