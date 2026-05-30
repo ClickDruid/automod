@@ -1,0 +1,53 @@
+[
+  {
+    "id": "gr86-2023",
+    "name": "GR86",
+    "brand": "Toyota",
+    "year": 2023,
+    "baseStats": {
+      "power": 52,
+      "handling": 72,
+      "braking": 65,
+      "suspension": 60,
+      "weight": 75,
+      "turbo": 0
+    },
+    "modelPath": "/models/gr86.glb",
+    "color": "#C0392B",
+    "category": "jdm"
+  },
+  {
+    "id": "civic-2022",
+    "name": "Civic Si",
+    "brand": "Honda",
+    "year": 2022,
+    "baseStats": {
+      "power": 58,
+      "handling": 68,
+      "braking": 62,
+      "suspension": 63,
+      "weight": 70,
+      "turbo": 45
+    },
+    "modelPath": "/models/civic.glb",
+    "color": "#2C3E50",
+    "category": "jdm"
+  },
+  {
+    "id": "wrx-2023",
+    "name": "WRX",
+    "brand": "Subaru",
+    "year": 2023,
+    "baseStats": {
+      "power": 65,
+      "handling": 70,
+      "braking": 68,
+      "suspension": 66,
+      "weight": 68,
+      "turbo": 62
+    },
+    "modelPath": "/models/wrx.glb",
+    "color": "#1A5276",
+    "category": "jdm"
+  }
+]
