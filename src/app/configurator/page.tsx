@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { calculateStats, STAT_LABELS, STAT_COLORS } from '@/lib/stats'
@@ -176,7 +176,7 @@ export default function ConfiguratorPage() {
   const [selectedCar, setSelectedCar] = useState<CarModel>(cars[0])
   const [selectedParts, setSelectedParts] = useState<CarPart[]>([])
   const [activeCategory, setActiveCategory] = useState<PartCategory | 'all'>('all')
-  const [lastToggledCategory, setLastToggledCategory] = useState<PartCategory | null>(null)
+  const [focusedCategory, setFocusedCategory] = useState<PartCategory | null>(null)
 
   const currentStats = useMemo(
     () => calculateStats(selectedCar.baseStats, selectedParts),
@@ -202,20 +202,22 @@ export default function ConfiguratorPage() {
   const handleCarChange = (car: CarModel) => {
     setSelectedCar(car)
     setSelectedParts([])
+    setFocusedCategory(null)
   }
 
   const handleToggle = (part: CarPart) => {
+    const isRemoving = !!selectedParts.find(p => p.id === part.id)
     setSelectedParts(prev =>
-      prev.find(p => p.id === part.id)
-        ? prev.filter(p => p.id !== part.id)
-        : [...prev, part]
+      isRemoving ? prev.filter(p => p.id !== part.id) : [...prev, part]
     )
-    setLastToggledCategory(part.category)
+    if (isRemoving) {
+      // Zoom out when deselected
+      setFocusedCategory(null)
+    } else {
+      // Zoom to the part area when selected
+      setFocusedCategory(part.category)
+    }
   }
-
-  const handleCameraAnimDone = useCallback(() => {
-    setLastToggledCategory(null)
-  }, [])
 
   const buildLabel = totalBoost === 0 ? null
     : totalBoost < 10 ? 'STREET BUILD'
@@ -319,7 +321,7 @@ export default function ConfiguratorPage() {
         </div>
 
         {/* ── CENTER: 3D CAR ── */}
-        <div className="flex-1 min-w-0 relative bg-zinc-950 flex flex-col">
+        <div className="flex-1 min-w-0 relative bg-zinc-950 flex flex-col overflow-hidden">
           {/* Garage floor glow */}
           <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-orange-500/5 to-transparent pointer-events-none" />
           <div className="absolute inset-x-0 bottom-0 h-px bg-orange-500/10" />
@@ -328,15 +330,35 @@ export default function ConfiguratorPage() {
             <CarViewer
               carColor={selectedCar.color}
               selectedParts={selectedParts}
-              lastToggledCategory={lastToggledCategory}
-              onCameraAnimDone={handleCameraAnimDone}
+              focusedCategory={focusedCategory}
             />
           </div>
+
+          {/* Overview button — only shown when zoomed in */}
+          <AnimatePresence>
+            {focusedCategory && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="absolute top-3 left-1/2 -translate-x-1/2 z-10"
+              >
+                <button
+                  onClick={() => setFocusedCategory(null)}
+                  className="flex items-center gap-1.5 bg-zinc-900/90 border border-zinc-700 hover:border-orange-500 text-zinc-300 hover:text-white text-[10px] font-black tracking-widest px-3 py-1.5 rounded-full backdrop-blur-sm transition-all"
+                >
+                  ← OVERVIEW
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Bottom hint */}
           <div className="flex-shrink-0 h-8 flex items-center justify-center gap-4 border-t border-zinc-900/50">
             <p className="text-[10px] text-zinc-700 font-medium tracking-wider">
-              DRAG TO ROTATE · PINCH TO ZOOM
+              {focusedCategory
+                ? 'DRAG TO INSPECT · AUTO-RETURNS IN 3S · CLICK OVERVIEW TO ORBIT'
+                : 'DRAG TO ROTATE · PINCH TO ZOOM · SELECT A PART TO FOCUS'}
             </p>
           </div>
         </div>
@@ -399,7 +421,7 @@ export default function ConfiguratorPage() {
                   REQUEST QUOTE →
                 </button>
                 <button
-                  onClick={() => setSelectedParts([])}
+                  onClick={() => { setSelectedParts([]); setFocusedCategory(null) }}
                   className="w-full py-1.5 rounded-xl border border-zinc-800 text-zinc-600 hover:text-zinc-400 font-bold text-[10px] tracking-widest transition-colors"
                 >
                   CLEAR BUILD
