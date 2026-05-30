@@ -1,248 +1,205 @@
 'use client'
 
-import { Suspense } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { OrbitControls, Environment, ContactShadows, PresentationControls } from '@react-three/drei'
-import type { CarPart } from '@/types'
+import { Suspense, useRef, useEffect } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { useGLTF, Environment, ContactShadows, CameraControls } from '@react-three/drei'
+import type { CarPart, PartCategory } from '@/types'
 import * as THREE from 'three'
 
-function CarModel({ color, selectedParts }: { color: string; selectedParts: CarPart[] }) {
-  const hasWheels = selectedParts.some(p => p.category === 'wheels')
-  const hasWing = selectedParts.some(p => p.id.includes('wing') || p.id.includes('body-kit'))
-  const hasLip = selectedParts.some(p => p.id.includes('lip'))
-  const hasExhaust = selectedParts.some(p => p.category === 'exhaust')
+// Pre-load the model
+useGLTF.preload('/models/ferrari.glb')
 
+// Camera positions per part category
+const CAMERA_POSITIONS: Record<PartCategory | 'default', {
+  pos: [number, number, number]
+  target: [number, number, number]
+}> = {
+  engine:       { pos: [2.2, 1.4, 3.8],  target: [0, 0.4, 1.5]  },
+  intake:       { pos: [1.8, 1.6, 4.2],  target: [0, 0.5, 1.8]  },
+  exhaust:      { pos: [2.0, 0.8, -4.0], target: [0.3, 0.1, -2.2] },
+  suspension:   { pos: [3.2, 0.6, 1.2],  target: [1.0, -0.2, 0.8] },
+  brakes:       { pos: [3.0, 0.8, 1.5],  target: [1.0, 0, 1.0]   },
+  wheels:       { pos: [3.4, 0.9, 0],    target: [1.2, -0.1, 0]  },
+  aero:         { pos: [2.5, 2.2, -3.2], target: [0, 1.0, -1.5]  },
+  transmission: { pos: [2.5, 0.6, 0.5],  target: [0, -0.3, 0]    },
+  default:      { pos: [3.5, 1.6, 5.5],  target: [0, 0.3, 0]     },
+}
+
+function FerrariModel({ color, selectedParts }: {
+  color: string
+  selectedParts: CarPart[]
+}) {
+  const { scene } = useGLTF('/models/ferrari.glb')
+  const aoTexture = new THREE.TextureLoader().load('/models/ferrari_ao.png')
   const bodyColor = new THREE.Color(color)
-  const glassColor = new THREE.Color('#0a1520')
-  const wheelColor = hasWheels ? new THREE.Color('#d0d0d0') : new THREE.Color('#111111')
-  const rimColor = hasWheels ? new THREE.Color('#f0f0f0') : new THREE.Color('#222222')
-  const rubberColor = new THREE.Color('#0a0a0a')
+
+  useEffect(() => {
+    scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return
+      const name = child.name.toLowerCase()
+
+      if (name.includes('body') || name.includes('car') || name === 'mesh_0') {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => {
+            if (m instanceof THREE.MeshStandardMaterial) {
+              m.color = bodyColor
+              m.metalness = 0.9
+              m.roughness = 0.15
+              if (aoTexture) m.aoMap = aoTexture
+            }
+          })
+        } else if (child.material instanceof THREE.MeshStandardMaterial) {
+          child.material.color = bodyColor
+          child.material.metalness = 0.9
+          child.material.roughness = 0.15
+          if (aoTexture) child.material.aoMap = aoTexture
+        }
+      }
+    })
+  }, [color, scene])
+
+  const hasWing = selectedParts.some(p => p.category === 'aero' && p.id.includes('wing'))
+  const hasLip  = selectedParts.some(p => p.id.includes('lip'))
 
   return (
-    <group position={[0, -0.5, 0]}>
-      {/* === BODY === */}
-      <mesh position={[0, 0.38, 0]} castShadow receiveShadow>
-        <boxGeometry args={[1.72, 0.28, 3.8]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.85} roughness={0.15} />
-      </mesh>
+    <group>
+      <primitive object={scene} scale={1} position={[0, -0.44, 0]} />
 
-      {/* Hood slope */}
-      <mesh position={[0, 0.52, 1.3]} rotation={[0.18, 0, 0]} castShadow>
-        <boxGeometry args={[1.72, 0.08, 1.1]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.85} roughness={0.15} />
-      </mesh>
-
-      {/* Trunk lid */}
-      <mesh position={[0, 0.52, -1.3]} rotation={[-0.1, 0, 0]} castShadow>
-        <boxGeometry args={[1.72, 0.08, 0.9]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.85} roughness={0.15} />
-      </mesh>
-
-      {/* Cabin */}
-      <mesh position={[0, 0.78, 0.1]} castShadow>
-        <boxGeometry args={[1.52, 0.36, 1.65]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.85} roughness={0.15} />
-      </mesh>
-
-      {/* Cabin roof */}
-      <mesh position={[0, 0.96, 0.05]} castShadow>
-        <boxGeometry args={[1.42, 0.08, 1.4]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.8} roughness={0.2} />
-      </mesh>
-
-      {/* Windshield */}
-      <mesh position={[0, 0.82, 0.88]} rotation={[-0.42, 0, 0]}>
-        <boxGeometry args={[1.38, 0.44, 0.06]} />
-        <meshStandardMaterial color={glassColor} transparent opacity={0.55} metalness={0.05} roughness={0} />
-      </mesh>
-
-      {/* Rear window */}
-      <mesh position={[0, 0.82, -0.72]} rotation={[0.35, 0, 0]}>
-        <boxGeometry args={[1.38, 0.36, 0.06]} />
-        <meshStandardMaterial color={glassColor} transparent opacity={0.55} metalness={0.05} roughness={0} />
-      </mesh>
-
-      {/* Side windows L */}
-      <mesh position={[-0.77, 0.82, 0.08]}>
-        <boxGeometry args={[0.04, 0.28, 1.0]} />
-        <meshStandardMaterial color={glassColor} transparent opacity={0.5} />
-      </mesh>
-      {/* Side windows R */}
-      <mesh position={[0.77, 0.82, 0.08]}>
-        <boxGeometry args={[0.04, 0.28, 1.0]} />
-        <meshStandardMaterial color={glassColor} transparent opacity={0.5} />
-      </mesh>
-
-      {/* Front bumper */}
-      <mesh position={[0, 0.3, 2.0]} castShadow>
-        <boxGeometry args={[1.72, 0.32, 0.12]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.7} roughness={0.25} />
-      </mesh>
-
-      {/* Rear bumper */}
-      <mesh position={[0, 0.3, -2.0]} castShadow>
-        <boxGeometry args={[1.72, 0.32, 0.12]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.7} roughness={0.25} />
-      </mesh>
-
-      {/* Grille */}
-      <mesh position={[0, 0.28, 2.07]}>
-        <boxGeometry args={[0.9, 0.16, 0.04]} />
-        <meshStandardMaterial color="#0a0a0a" roughness={0.8} />
-      </mesh>
-
-      {/* Headlights L */}
-      <mesh position={[-0.62, 0.36, 2.04]}>
-        <boxGeometry args={[0.36, 0.12, 0.04]} />
-        <meshStandardMaterial color="#e8f0ff" emissive="#aaccff" emissiveIntensity={0.5} roughness={0.1} />
-      </mesh>
-      {/* Headlights R */}
-      <mesh position={[0.62, 0.36, 2.04]}>
-        <boxGeometry args={[0.36, 0.12, 0.04]} />
-        <meshStandardMaterial color="#e8f0ff" emissive="#aaccff" emissiveIntensity={0.5} roughness={0.1} />
-      </mesh>
-
-      {/* Taillights L */}
-      <mesh position={[-0.62, 0.36, -2.04]}>
-        <boxGeometry args={[0.38, 0.1, 0.04]} />
-        <meshStandardMaterial color="#ff1100" emissive="#ff0000" emissiveIntensity={0.8} />
-      </mesh>
-      {/* Taillights R */}
-      <mesh position={[0.62, 0.36, -2.04]}>
-        <boxGeometry args={[0.38, 0.1, 0.04]} />
-        <meshStandardMaterial color="#ff1100" emissive="#ff0000" emissiveIntensity={0.8} />
-      </mesh>
-
-      {/* Door handles L */}
-      <mesh position={[-0.87, 0.65, 0.2]}>
-        <boxGeometry args={[0.04, 0.04, 0.18]} />
-        <meshStandardMaterial color="#888888" metalness={0.9} roughness={0.1} />
-      </mesh>
-      {/* Door handles R */}
-      <mesh position={[0.87, 0.65, 0.2]}>
-        <boxGeometry args={[0.04, 0.04, 0.18]} />
-        <meshStandardMaterial color="#888888" metalness={0.9} roughness={0.1} />
-      </mesh>
-
-      {/* === WHEELS — FL, FR, RL, RR === */}
-      {([[-0.94, 1.18], [0.94, 1.18], [-0.94, -1.18], [0.94, -1.18]] as [number, number][]).map(([x, z], i) => (
-        <group key={i} position={[x, 0, z]}>
-          {/* Tyre */}
-          <mesh rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.32, 0.32, 0.22, 32]} />
-            <meshStandardMaterial color={rubberColor} roughness={0.95} />
-          </mesh>
-          {/* Rim face */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[x > 0 ? 0.1 : -0.1, 0, 0]}>
-            <cylinderGeometry args={[0.24, 0.24, 0.02, 32]} />
-            <meshStandardMaterial color={rimColor} metalness={0.95} roughness={0.05} />
-          </mesh>
-          {/* Spokes */}
-          {[0, 1, 2, 3, 4].map(s => (
-            <mesh
-              key={s}
-              rotation={[0, 0, Math.PI / 2]}
-              position={[
-                x > 0 ? 0.095 : -0.095,
-                Math.sin((s / 5) * Math.PI * 2) * 0.14,
-                Math.cos((s / 5) * Math.PI * 2) * 0.14
-              ]}
-            >
-              <boxGeometry args={[0.01, 0.05, 0.18]} />
-              <meshStandardMaterial color={wheelColor} metalness={0.9} roughness={0.1} />
-            </mesh>
-          ))}
-          {/* Centre cap */}
-          <mesh rotation={[0, 0, Math.PI / 2]} position={[x > 0 ? 0.1 : -0.1, 0, 0]}>
-            <cylinderGeometry args={[0.05, 0.05, 0.025, 16]} />
-            <meshStandardMaterial color="#222222" metalness={0.8} roughness={0.2} />
-          </mesh>
-        </group>
-      ))}
-
-      {/* === MODS === */}
-
-      {/* Front lip */}
+      {/* Front lip overlay */}
       {hasLip && (
-        <mesh position={[0, 0.14, 2.07]} castShadow>
-          <boxGeometry args={[1.7, 0.1, 0.1]} />
-          <meshStandardMaterial color="#111111" roughness={0.6} />
+        <mesh position={[0, -0.28, 2.1]} castShadow>
+          <boxGeometry args={[1.65, 0.08, 0.1]} />
+          <meshStandardMaterial color="#111111" roughness={0.5} />
         </mesh>
       )}
 
-      {/* Rear wing */}
+      {/* Rear wing overlay */}
       {hasWing && (
-        <group position={[0, 1.04, -1.6]}>
+        <group position={[0, 0.55, -1.75]}>
           <mesh>
-            <boxGeometry args={[1.55, 0.05, 0.32]} />
+            <boxGeometry args={[1.4, 0.05, 0.28]} />
             <meshStandardMaterial color="#111111" metalness={0.4} roughness={0.4} />
           </mesh>
-          {[-0.68, 0.68].map((x, i) => (
-            <mesh key={i} position={[x, -0.14, 0.02]}>
-              <boxGeometry args={[0.07, 0.28, 0.07]} />
+          {([-0.6, 0.6] as number[]).map((x, i) => (
+            <mesh key={i} position={[x, -0.12, 0]}>
+              <boxGeometry args={[0.06, 0.24, 0.06]} />
               <meshStandardMaterial color="#111111" metalness={0.4} roughness={0.4} />
             </mesh>
           ))}
         </group>
       )}
-
-      {/* Exhaust tip */}
-      {hasExhaust && (
-        <group position={[0.28, 0.08, -2.06]}>
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.07, 0.09, 0.14, 16]} />
-            <meshStandardMaterial color="#aaaaaa" metalness={0.95} roughness={0.05} />
-          </mesh>
-        </group>
-      )}
-
-      {/* Floor shadow plane */}
-      <mesh position={[0, -0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[4, 6]} />
-        <meshStandardMaterial color="#000000" transparent opacity={0} />
-      </mesh>
     </group>
+  )
+}
+
+// Handles auto-rotation + camera zoom to part
+function SceneController({
+  lastCategory,
+  isAnimating,
+  onAnimationDone,
+}: {
+  lastCategory: PartCategory | 'default' | null
+  isAnimating: boolean
+  onAnimationDone: () => void
+}) {
+  const controlsRef = useRef<CameraControls>(null)
+  const autoRotating = useRef(true)
+  const rotationAngle = useRef(0)
+  const { camera } = useThree()
+
+  // Auto-rotate when not animating to a part
+  useFrame((_, delta) => {
+    if (!autoRotating.current || !controlsRef.current) return
+    rotationAngle.current += delta * 0.35
+    const r = 5.8
+    camera.position.x = Math.sin(rotationAngle.current) * r
+    camera.position.z = Math.cos(rotationAngle.current) * r
+    camera.position.y = 1.6
+    camera.lookAt(0, 0.3, 0)
+  })
+
+  // Zoom to part when category changes
+  useEffect(() => {
+    if (!lastCategory || !controlsRef.current) return
+
+    autoRotating.current = false
+    const { pos, target } = CAMERA_POSITIONS[lastCategory] ?? CAMERA_POSITIONS.default
+
+    controlsRef.current.setLookAt(
+      pos[0], pos[1], pos[2],
+      target[0], target[1], target[2],
+      true // animate
+    ).then(() => {
+      // After 2.5s return to orbit
+      setTimeout(() => {
+        // Sync rotation angle to current camera position before resuming
+        rotationAngle.current = Math.atan2(camera.position.x, camera.position.z)
+        autoRotating.current = true
+        onAnimationDone()
+      }, 2500)
+    })
+  }, [lastCategory])
+
+  return (
+    <CameraControls
+      ref={controlsRef}
+      makeDefault
+      minDistance={2}
+      maxDistance={10}
+      enabled={!autoRotating.current}
+    />
   )
 }
 
 interface CarViewerProps {
   carColor: string
   selectedParts: CarPart[]
+  lastToggledCategory: PartCategory | null
+  onCameraAnimDone: () => void
 }
 
-export default function CarViewer({ carColor, selectedParts }: CarViewerProps) {
+export default function CarViewer({
+  carColor,
+  selectedParts,
+  lastToggledCategory,
+  onCameraAnimDone,
+}: CarViewerProps) {
   return (
     <div className="w-full h-full">
       <Canvas
-        camera={{ position: [3.2, 1.4, 5.5], fov: 42 }}
+        camera={{ position: [3.5, 1.6, 5.5], fov: 42 }}
         shadows
         gl={{ antialias: true, alpha: true }}
         style={{ background: 'transparent' }}
       >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[6, 8, 4]} intensity={1.4} castShadow shadow-mapSize={[2048, 2048]} />
-        <directionalLight position={[-4, 4, -4]} intensity={0.4} color="#6688ff" />
-        <pointLight position={[0, 6, 0]} intensity={0.3} color="#ffffff" />
+        <ambientLight intensity={0.6} />
+        <directionalLight
+          position={[6, 8, 4]}
+          intensity={1.6}
+          castShadow
+          shadow-mapSize={[2048, 2048]}
+        />
+        <directionalLight position={[-5, 4, -4]} intensity={0.5} color="#6688ff" />
+        <pointLight position={[0, 6, 0]} intensity={0.4} />
 
         <Suspense fallback={null}>
-          <PresentationControls
-            global
-            rotation={[0, -0.3, 0]}
-            polar={[-0.1, 0.15]}
-            azimuth={[-Infinity, Infinity]}
-          >
-            <CarModel color={carColor} selectedParts={selectedParts} />
-          </PresentationControls>
+          <FerrariModel color={carColor} selectedParts={selectedParts} />
 
           <ContactShadows
-            position={[0, -1.0, 0]}
-            opacity={0.7}
-            scale={10}
-            blur={2.5}
-            far={3}
+            position={[0, -0.46, 0]}
+            opacity={0.75}
+            scale={12}
+            blur={3}
+            far={4}
           />
           <Environment preset="city" />
         </Suspense>
+
+        <SceneController
+          lastCategory={lastToggledCategory}
+          isAnimating={!!lastToggledCategory}
+          onAnimationDone={onCameraAnimDone}
+        />
       </Canvas>
     </div>
   )

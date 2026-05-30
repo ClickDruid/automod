@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { calculateStats, STAT_LABELS, STAT_COLORS } from '@/lib/stats'
@@ -176,6 +176,7 @@ export default function ConfiguratorPage() {
   const [selectedCar, setSelectedCar] = useState<CarModel>(cars[0])
   const [selectedParts, setSelectedParts] = useState<CarPart[]>([])
   const [activeCategory, setActiveCategory] = useState<PartCategory | 'all'>('all')
+  const [lastToggledCategory, setLastToggledCategory] = useState<PartCategory | null>(null)
 
   const currentStats = useMemo(
     () => calculateStats(selectedCar.baseStats, selectedParts),
@@ -209,7 +210,12 @@ export default function ConfiguratorPage() {
         ? prev.filter(p => p.id !== part.id)
         : [...prev, part]
     )
+    setLastToggledCategory(part.category)
   }
+
+  const handleCameraAnimDone = useCallback(() => {
+    setLastToggledCategory(null)
+  }, [])
 
   const buildLabel = totalBoost === 0 ? null
     : totalBoost < 10 ? 'STREET BUILD'
@@ -319,7 +325,12 @@ export default function ConfiguratorPage() {
           <div className="absolute inset-x-0 bottom-0 h-px bg-orange-500/10" />
 
           <div className="flex-1 min-h-0">
-            <CarViewer carColor={selectedCar.color} selectedParts={selectedParts} />
+            <CarViewer
+              carColor={selectedCar.color}
+              selectedParts={selectedParts}
+              lastToggledCategory={lastToggledCategory}
+              onCameraAnimDone={handleCameraAnimDone}
+            />
           </div>
 
           {/* Bottom hint */}
